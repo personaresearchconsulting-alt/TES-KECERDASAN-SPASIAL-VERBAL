@@ -198,14 +198,17 @@
 
     let current = 0;
     let userAns = new Array(quizData.length).fill(null);
-    let timeLeft = 3600; 
+    let timeLeft = 3600; // 60 Menit
     let timerInterval;
 
+    // --- SISTEM LOGIN ---
     function startTest() {
         const name = document.getElementById('username').value.trim();
         if(!name) return alert("Silakan masukkan nama Anda!");
+        
         document.getElementById('login-screen').style.display = 'none';
         document.getElementById('test-screen').style.display = 'block';
+        
         render();
         timerInterval = setInterval(updateTimer, 1000);
     }
@@ -218,10 +221,12 @@
         document.getElementById('timer').innerText = `${m}:${s < 10 ? '0'+s : s}`;
     }
 
+    // --- RENDER SOAL ---
     function render() {
         const q = quizData[current];
         document.getElementById('q-num').innerText = `PERTANYAAN ${current + 1} DARI ${quizData.length}`;
         document.getElementById('q-text').innerText = q.q;
+        
         let html = "";
         q.opts.forEach((o, i) => {
             html += `<div class="opt ${userAns[current] === i ? 'selected' : ''}" onclick="pick(${i})">
@@ -229,6 +234,8 @@
                      </div>`;
         });
         document.getElementById('options-container').innerHTML = html;
+
+        // Navigasi
         let nav = "";
         quizData.forEach((_, i) => {
             nav += `<div class="nav-item ${userAns[i] !== null ? 'filled' : ''} ${current === i ? 'active' : ''}" onclick="current=${i};render()">${i+1}</div>`;
@@ -239,6 +246,7 @@
     function pick(i) {
         userAns[current] = i;
         render();
+        // Auto next
         setTimeout(() => { if(current < quizData.length-1) { current++; render(); } }, 250);
     }
 
@@ -249,41 +257,90 @@
     }
 
     function confirmFinish() {
-        if(confirm("Apakah Anda yakin ingin menyelesaikan ujian?")) finish();
+        if(confirm("Apakah Anda yakin ingin menyelesaikan ujian? Jawaban akan langsung dikirim.")) finish();
     }
 
+    // --- FINISH & INTEGRASI G-SHEET ---
     function finish() {
         clearInterval(timerInterval);
         let benar = 0;
         let tableRows = "";
+        
         quizData.forEach((q, i) => {
             const isCorrect = userAns[i] !== null && q.opts[userAns[i]] === q.ans;
             if(isCorrect) benar++;
+            
             tableRows += `<tr>
                 <td align="center"><b>${i+1}</b></td>
-                <td><b>Soal:</b> ${q.q}<br><span style="color:${isCorrect?'green':'red'}">Jawaban Anda: ${userAns[i]!==null?q.opts[userAns[i]]:'-'}</span><br><b>Kunci:</b> <span style="color:green">${q.ans}</span><div class="exp-box"><b>Pembahasan:</b> ${q.exp}</div></td>
+                <td>
+                    <b>Soal:</b> ${q.q}<br>
+                    <span style="color:${isCorrect?'green':'red'}">Jawaban Anda: ${userAns[i]!==null?q.opts[userAns[i]]:'-'}</span><br>
+                    <b>Kunci:</b> <span style="color:green">${q.ans}</span>
+                    <div class="exp-box"><b>Pembahasan:</b> ${q.exp || 'Analisis mandiri materi terkait.'}</div>
+                </td>
                 <td align="center">${isCorrect ? '<b style="color:green">BENAR</b>' : '<b style="color:red">SALAH</b>'}</td>
             </tr>`;
         });
+
         const score = Math.round((benar / quizData.length) * 100);
+        const name = document.getElementById('username').value;
+
+        // KIRIM KE GOOGLE SHEET (Ganti URL di bawah)
+        fetch("https://script.google.com/macros/s/AKfycbxp_LboBzFPWAwYnpIYbzcvXbafmrDSekTmk7PkaRt871LTHPEAt375cGR65pCsT4vw/exec", {
+            method: 'POST',
+            mode: 'no-cors',
+            body: JSON.stringify({
+                nama: name,
+                skor: score,
+                kategori: "Kecerdasan",
+                tanggal: new Date().toLocaleString()
+            })
+        });
+
         document.getElementById('test-screen').style.display = 'none';
         document.getElementById('result-screen').style.display = 'block';
-        document.getElementById('res-name-display').innerText = document.getElementById('username').value;
+        document.getElementById('res-name-display').innerText = name;
         document.getElementById('score-val').innerText = score;
         document.getElementById('review-body').innerHTML = tableRows;
         window.scrollTo(0,0);
     }
 
+    // --- DOWNLOAD PDF ---
     function downloadPDF() {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
         const nama = document.getElementById('username').value;
         const score = document.getElementById('score-val').innerText;
-        doc.setFontSize(18); doc.text("LAPORAN HASIL CAT KECERDASAN", 105, 15, { align: "center" });
-        doc.setFontSize(11); doc.text("Persona Research & Consulting", 105, 22, { align: "center" });
-        doc.text(`Nama : ${nama} | Skor : ${score}`, 15, 35);
-        const rows = quizData.map((q, i) => [i + 1, `Soal: ${q.q}\nKunci: ${q.ans}`, userAns[i] !== null && q.opts[userAns[i]] === q.ans ? "BENAR" : "SALAH"]);
-        doc.autoTable({ startY: 45, head: [['No', 'Detail', 'Status']], body: rows, theme: 'grid' });
+
+        doc.setFontSize(18);
+        doc.text("LAPORAN HASIL CAT KECERDASAN", 105, 15, { align: "center" });
+        doc.setFontSize(11);
+        doc.text("Persona Research & Consulting", 105, 22, { align: "center" });
+        doc.line(15, 25, 195, 25);
+
+        doc.text(`Nama Lengkap : ${nama}`, 15, 35);
+        doc.text(`Skor Akhir    : ${score} / 100`, 15, 42);
+        doc.text(`Tanggal Tes   : ${new Date().toLocaleDateString('id-ID')}`, 15, 49);
+
+        const rows = quizData.map((q, i) => {
+            const isCorrect = userAns[i] !== null && q.opts[userAns[i]] === q.ans;
+            return [
+                i + 1,
+                `Soal: ${q.q}\nJawaban: ${userAns[i]!==null?q.opts[userAns[i]]:'-'}\nKunci: ${q.ans}\nPembahasan: ${q.exp}`,
+                isCorrect ? "BENAR" : "SALAH"
+            ];
+        });
+
+        doc.autoTable({
+            startY: 55,
+            head: [['No', 'Detail Soal & Pembahasan', 'Status']],
+            body: rows,
+            theme: 'grid',
+            headStyles: { fillColor: [26, 26, 46] },
+            styles: { fontSize: 8, cellPadding: 3 },
+            columnStyles: { 1: { cellWidth: 140 } }
+        });
+
         doc.save(`Hasil_CAT_${nama}.pdf`);
     }
 </script>
